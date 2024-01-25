@@ -1,4 +1,4 @@
-module github.com/near/rollup-data-availability
+module github.com/elvis-hp/rollup-data-availability
 
 go 1.19
 
