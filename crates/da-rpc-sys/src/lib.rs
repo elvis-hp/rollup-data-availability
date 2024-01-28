@@ -13,6 +13,9 @@ use std::{
 };
 use tokio::runtime::{self, Runtime};
 
+use tokio::time::timeout;
+use std::time::Duration;
+
 pub type BlockHeight = u64;
 pub type Commitment = [u8; 32];
 pub type ShareVersion = u32;
@@ -172,19 +175,28 @@ pub unsafe extern "C" fn submit(
         .iter()
         .map(|blob| blob.clone().into())
         .collect::<Vec<Blob>>();
-    match RUNTIME.block_on(client.submit(&blobs)) {
-        Ok(x) => {
-            let str = CString::new(x.0).unwrap();
-            let ptr = str.into_raw();
-            let char: *mut c_char = ptr as *mut c_char;
 
-            char
+    // Use timeout to enforce a maximum submission time: 120s
+    let result = timeout(Duration::from_secs(120), client.submit(&[blob]));
+    match result {
+            Ok(Ok(result)) => {
+                let tx = result.0;
+                let frame_ref = FrameRef::new(tx, commitment);
+                RustSafeArray::new(frame_ref.to_celestia_format().to_vec())
+            }
+            Ok(Err(e)) => {
+                update_last_error(anyhow::anyhow!(e));
+                RustSafeArray::new(vec![])
+            }
+            Err(_) => {
+                update_last_error(anyhow::anyhow!("Submission timed out"));
+                RustSafeArray::new(vec![])
+            }
         }
-        Err(e) => {
-            update_last_error(anyhow::anyhow!(e));
-            std::ptr::null_mut()
-        }
+    } else {
+        RustSafeArray::new(vec![])
     }
+    
 }
 
 #[repr(C)]
